@@ -109,6 +109,11 @@ var (
 
 	statusStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#8BE9FD"))
+
+	summaryBoxStyle = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#FF79C6")).
+		Padding(1, 2)
 )
 
 // GitHub CLI functions
@@ -321,9 +326,28 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, fetchNotificationsCmd()
 
 	case "tab":
-		// TODO: Implement summary view in Phase 3
-		m.statusMessage = "Summary view coming soon..."
+		if len(m.notifications) > 0 {
+			m.showingSummary = !m.showingSummary
+			if m.showingSummary {
+				notification := m.notifications[m.selectedIndex]
+				m.summaryContent = fmt.Sprintf("Repository: %s\nReason: %s\nType: %s\n\n%s",
+					notification.RepoName(),
+					notification.Reason,
+					notification.TypeDisplay(),
+					notification.Subject.Title)
+				m.statusMessage = "Showing summary"
+			} else {
+				m.statusMessage = ""
+			}
+		}
 		return m, nil
+
+	case "esc":
+		if m.showingSummary {
+			m.showingSummary = false
+			m.statusMessage = ""
+			return m, nil
+		}
 	}
 
 	return m, nil
@@ -342,7 +366,12 @@ func (m Model) View() string {
 			m.err)
 	}
 
+	if m.showingSummary {
+		return summaryBoxStyle.Render(m.summaryContent)
+	}
+
 	var b strings.Builder
+
 
 	// Title
 	b.WriteString(titleStyle.Render("GitHub Notifications"))
