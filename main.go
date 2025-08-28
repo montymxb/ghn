@@ -71,6 +71,7 @@ type Model struct {
 	loading        bool
 	err            error
 	showingSummary bool
+	summaryLoading bool
 	summaryContent string
 	statusMessage  string
 	terminalWidth  int
@@ -80,6 +81,7 @@ type Model struct {
 // Messages
 type notificationsLoadedMsg []Notification
 type notificationMarkedMsg string
+type detailsLoadedMsg string
 type errorMsg error
 type statusMsg string
 
@@ -218,6 +220,36 @@ func openInBrowserCmd(notification Notification) tea.Cmd {
 	}
 }
 
+func fetchDetails(url string, notificationType string) (string, error) {
+	cmd := exec.Command("gh", "api", url)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch details: %v", err)
+	}
+
+	var data map[string]interface{}
+	if err := json.Unmarshal(output, &data); err != nil {
+		return "", fmt.Errorf("failed to parse details: %v", err)
+	}
+
+	body, ok := data["body"].(string)
+	if !ok {
+		return "", fmt.Errorf("could not find body in response")
+	}
+
+	return body, nil
+}
+
+func fetchDetailsCmd(url string, notificationType string) tea.Cmd {
+	return func() tea.Msg {
+		details, err := fetchDetails(url, notificationType)
+		if err != nil {
+			return errorMsg(err)
+		}
+		return detailsLoadedMsg(details)
+	}
+}
+
 // Bubble Tea Model Implementation
 func initialModel() Model {
 	return Model{
@@ -272,6 +304,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.statusMessage = "Notification marked as read"
+		return m, nil
+
+	case detailsLoadedMsg:
+		m.summaryLoading = false
+		notification := m.notifications[m.selectedIndex]
+		m.summaryContent = fmt.Sprintf("Repository: %s\nReason: %s\nType: %s\n\n%s\n\n---\n\n%s",
+			notification.RepoName(),
+			notification.Reason,
+			notification.TypeDisplay(),
+			notification.Subject.Title,
+			string(msg))
+		m.statusMessage = "Summary loaded"
 		return m, nil
 
 	case errorMsg:
@@ -329,13 +373,10 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.notifications) > 0 {
 			m.showingSummary = !m.showingSummary
 			if m.showingSummary {
+				m.summaryLoading = true
 				notification := m.notifications[m.selectedIndex]
-				m.summaryContent = fmt.Sprintf("Repository: %s\nReason: %s\nType: %s\n\n%s",
-					notification.RepoName(),
-					notification.Reason,
-					notification.TypeDisplay(),
-					notification.Subject.Title)
-				m.statusMessage = "Showing summary"
+				m.summaryContent = "Loading..."
+				return m, fetchDetailsCmd(notification.Subject.URL, notification.Subject.Type)
 			} else {
 				m.statusMessage = ""
 			}
@@ -367,6 +408,9 @@ func (m Model) View() string {
 	}
 
 	if m.showingSummary {
+		if m.summaryLoading {
+			return summaryBoxStyle.Render("Loading...")
+		}
 		return summaryBoxStyle.Render(m.summaryContent)
 	}
 
