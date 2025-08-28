@@ -106,7 +106,8 @@ var (
 			Padding(0, 1)
 
 	selectedStyle = lipgloss.NewStyle().
-			Reverse(true)
+			Foreground(lipgloss.Color("#BD93F9")).
+			Bold(true)
 
 	unreadStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FF5F87"))
