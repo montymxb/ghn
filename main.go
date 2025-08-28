@@ -569,7 +569,7 @@ func (m Model) View() string {
 
 	// Header
 	if len(m.notifications) > 0 {
-		header := fmt.Sprintf("   %-8s %-20s %-10s %s", "Status", "Repository", "Type", "Title")
+		header := fmt.Sprintf("      %-20s %-10s %s", "Repository", "Type", "Title")
 		b.WriteString(headerStyle.Render(header))
 		b.WriteString("\n")
 
@@ -597,12 +597,14 @@ func (m Model) View() string {
 		for i := startIdx; i < endIdx; i++ {
 			notification := m.notifications[i]
 			line := m.formatNotificationLine(notification, i)
+				if i == m.selectedIndex {
+					line = "> " + line
+					line = selectedStyle.Render(line)
+				} else {
+					line = "  " + line
+				}
 
-			if i == m.selectedIndex {
-				line = selectedStyle.Render(line)
-			}
-
-			b.WriteString(line)
+				b.WriteString(line)
 			b.WriteString("\n")
 		}
 	} else {
