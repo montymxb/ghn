@@ -66,17 +66,18 @@ func (n *Notification) RepoName() string {
 
 // Bubble Tea Model
 type Model struct {
-	notifications  []Notification
-	selectedIndex  int
-	loading        bool
-	err            error
-	showingSummary bool
-	summaryLoading bool
-	summaryContent string
-	summaryCache   map[string]detailsLoadedMsg
-	statusMessage  string
-	terminalWidth  int
-	terminalHeight int
+	notifications   []Notification
+	selectedIndex   int
+	loading         bool
+	err             error
+	showingSummary  bool
+	summaryLoading  bool
+	summaryContent  string
+	summaryCache    map[string]detailsLoadedMsg
+	summaryScroll   int
+	statusMessage   string
+	terminalWidth   int
+	terminalHeight  int
 }
 
 // Messages
@@ -267,13 +268,14 @@ func fetchDetailsCmd(url string, notificationType string) tea.Cmd {
 // Bubble Tea Model Implementation
 func initialModel() Model {
 	return Model{
-		notifications:  []Notification{},
-		selectedIndex:  0,
-		loading:        true,
-		statusMessage:  "Loading notifications...",
-		summaryCache:   make(map[string]detailsLoadedMsg),
-		terminalWidth:  80,
-		terminalHeight: 24,
+		notifications:   []Notification{},
+		selectedIndex:   0,
+		loading:         true,
+		statusMessage:   "Loading notifications...",
+		summaryCache:    make(map[string]detailsLoadedMsg),
+		summaryScroll:   0,
+		terminalWidth:   80,
+		terminalHeight:  24,
 	}
 }
 
@@ -354,7 +356,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.showingSummary {
+		switch msg.String() {
+		case "up", "k":
+			if m.summaryScroll > 0 {
+				m.summaryScroll--
+			}
+			return m, nil
+		case "down", "j":
+			// We need to know the max scroll to avoid over-scrolling
+			// This is a bit of a hack, we should probably calculate this properly
+			maxScroll := strings.Count(m.summaryContent, "\n") - (m.terminalHeight - 10)
+			if m.summaryScroll < maxScroll {
+				m.summaryScroll++
+			}
+			return m, nil
+		case "q", "ctrl+c", "esc", "tab":
+			m.showingSummary = false
+			m.statusMessage = ""
+			return m, nil
+		}
+		return m, nil
+	}
+
 	switch msg.String() {
+
 
 	case "q", "ctrl+c":
 		return m, tea.Quit
@@ -395,30 +421,31 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.showingSummary = !m.showingSummary
 			if m.showingSummary {
 				notification := m.notifications[m.selectedIndex]
-				if summary, ok := m.summaryCache[notification.ID]; ok {
-					m.summaryLoading = false
-					author := summary.author
-					if author != "" {
-						author = fmt.Sprintf("by @%s", author)
+				m.summaryScroll = 0 // Reset scroll on new summary
+					if summary, ok := m.summaryCache[notification.ID]; ok {
+						m.summaryLoading = false
+						author := summary.author
+						if author != "" {
+							author = fmt.Sprintf("by @%s", author)
+						}
+						m.summaryContent = fmt.Sprintf("Repository: %s\nReason: %s\nType: %s %s\n\n%s\n\n---\n\n%s",
+							notification.RepoName(),
+							notification.Reason,
+							notification.TypeDisplay(),
+							author,
+							notification.Subject.Title,
+							summary.body)
+						m.statusMessage = "Summary loaded from cache"
+					} else {
+						m.summaryLoading = true
+						m.summaryContent = "Loading..."
+						return m, fetchDetailsCmd(notification.Subject.URL, notification.Subject.Type)
 					}
-					m.summaryContent = fmt.Sprintf("Repository: %s\nReason: %s\nType: %s %s\n\n%s\n\n---\n\n%s",
-						notification.RepoName(),
-						notification.Reason,
-						notification.TypeDisplay(),
-						author,
-						notification.Subject.Title,
-						summary.body)
-					m.statusMessage = "Summary loaded from cache"
 				} else {
-					m.summaryLoading = true
-					m.summaryContent = "Loading..."
-					return m, fetchDetailsCmd(notification.Subject.URL, notification.Subject.Type)
+					m.statusMessage = ""
 				}
-			} else {
-				m.statusMessage = ""
 			}
-		}
-		return m, nil
+			return m, nil
 
 	case "esc":
 		if m.showingSummary {
@@ -448,7 +475,34 @@ func (m Model) View() string {
 		if m.summaryLoading {
 			return summaryBoxStyle.Render("Loading...")
 		}
-		return summaryBoxStyle.Render(m.summaryContent)
+
+		lines := strings.Split(m.summaryContent, "\n")
+		viewHeight := m.terminalHeight - 4 // Account for padding and borders
+		if viewHeight < 1 {
+			viewHeight = 1
+		}
+
+		start := m.summaryScroll
+		end := m.summaryScroll + viewHeight
+
+		if start < 0 {
+			start = 0
+		}
+
+		if end > len(lines) {
+			end = len(lines)
+		}
+
+		// Ensure we don't scroll past the end
+		if m.summaryScroll > len(lines)-viewHeight && len(lines) > viewHeight {
+			m.summaryScroll = len(lines) - viewHeight
+			start = m.summaryScroll
+			end = start + viewHeight
+		}
+
+		visibleContent := strings.Join(lines[start:end], "\n")
+
+		return summaryBoxStyle.Render(visibleContent)
 	}
 
 	var b strings.Builder
