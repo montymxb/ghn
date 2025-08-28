@@ -10,6 +10,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -72,7 +73,8 @@ type Model struct {
 	err             error
 	showingSummary  bool
 	summaryLoading  bool
-	summaryContent  string
+	summaryHeader   string
+	summaryBody     string
 	summaryCache    map[string]detailsLoadedMsg
 	summaryScroll   int
 	statusMessage   string
@@ -265,6 +267,17 @@ func fetchDetailsCmd(url string, notificationType string) tea.Cmd {
 	}
 }
 
+func renderMarkdown(content string, width int) (string, error) {
+	r, err := glamour.NewTermRenderer(
+		glamour.WithAutoStyle(),
+		glamour.WithWordWrap(width),
+	)
+	if err != nil {
+		return "", err
+	}
+	return r.Render(content)
+}
+
 // Bubble Tea Model Implementation
 func initialModel() Model {
 	return Model{
@@ -331,13 +344,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if author != "" {
 			author = fmt.Sprintf("by @%s", author)
 		}
-		m.summaryContent = fmt.Sprintf("Repository: %s\nReason: %s\nType: %s %s\n\n%s\n\n---\n\n%s",
+		m.summaryHeader = fmt.Sprintf("Repository: %s\nReason: %s\nType: %s %s\n\n%s",
 			notification.RepoName(),
 			notification.Reason,
 			notification.TypeDisplay(),
 			author,
-			notification.Subject.Title,
-			msg.body)
+			notification.Subject.Title)
+		m.summaryBody = msg.body
 		m.statusMessage = "Summary loaded"
 		return m, nil
 
@@ -366,7 +379,7 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "down", "j":
 			// We need to know the max scroll to avoid over-scrolling
 			// This is a bit of a hack, we should probably calculate this properly
-			maxScroll := strings.Count(m.summaryContent, "\n") - (m.terminalHeight - 10)
+			maxScroll := strings.Count(m.summaryBody, "\n") - (m.terminalHeight - 10)
 			if m.summaryScroll < maxScroll {
 				m.summaryScroll++
 			}
@@ -428,17 +441,18 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 						if author != "" {
 							author = fmt.Sprintf("by @%s", author)
 						}
-						m.summaryContent = fmt.Sprintf("Repository: %s\nReason: %s\nType: %s %s\n\n%s\n\n---\n\n%s",
+						m.summaryHeader = fmt.Sprintf("Repository: %s\nReason: %s\nType: %s %s\n\n%s",
 							notification.RepoName(),
 							notification.Reason,
 							notification.TypeDisplay(),
 							author,
-							notification.Subject.Title,
-							summary.body)
+							notification.Subject.Title)
+						m.summaryBody = summary.body
 						m.statusMessage = "Summary loaded from cache"
 					} else {
 						m.summaryLoading = true
-						m.summaryContent = "Loading..."
+						m.summaryHeader = ""
+						m.summaryBody = "Loading..."
 						return m, fetchDetailsCmd(notification.Subject.URL, notification.Subject.Type)
 					}
 				} else {
@@ -446,6 +460,7 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return m, nil
+
 
 	case "esc":
 		if m.showingSummary {
@@ -476,7 +491,16 @@ func (m Model) View() string {
 			return summaryBoxStyle.Render("Loading...")
 		}
 
-		lines := strings.Split(m.summaryContent, "\n")
+		// Render the summary body as markdown
+		renderedBody, err := renderMarkdown(m.summaryBody, m.terminalWidth-8)
+		if err != nil {
+			// Fallback to non-rendered content on error
+			renderedBody = m.summaryBody
+		}
+
+		fullContent := m.summaryHeader + "\n\n---\n\n" + renderedBody
+
+		lines := strings.Split(fullContent, "\n")
 		viewHeight := m.terminalHeight - 6 // Account for padding, borders, and indicators
 		if viewHeight < 1 {
 			viewHeight = 1
@@ -521,6 +545,7 @@ func (m Model) View() string {
 	}
 
 	var b strings.Builder
+
 
 
 	// Title
