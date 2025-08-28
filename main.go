@@ -73,6 +73,7 @@ type Model struct {
 	showingSummary bool
 	summaryLoading bool
 	summaryContent string
+	summaryCache   map[string]detailsLoadedMsg
 	statusMessage  string
 	terminalWidth  int
 	terminalHeight int
@@ -270,6 +271,7 @@ func initialModel() Model {
 		selectedIndex:  0,
 		loading:        true,
 		statusMessage:  "Loading notifications...",
+		summaryCache:   make(map[string]detailsLoadedMsg),
 		terminalWidth:  80,
 		terminalHeight: 24,
 	}
@@ -322,6 +324,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case detailsLoadedMsg:
 		m.summaryLoading = false
 		notification := m.notifications[m.selectedIndex]
+		m.summaryCache[notification.ID] = msg
 		author := msg.author
 		if author != "" {
 			author = fmt.Sprintf("by @%s", author)
@@ -391,10 +394,26 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if len(m.notifications) > 0 {
 			m.showingSummary = !m.showingSummary
 			if m.showingSummary {
-				m.summaryLoading = true
 				notification := m.notifications[m.selectedIndex]
-				m.summaryContent = "Loading..."
-				return m, fetchDetailsCmd(notification.Subject.URL, notification.Subject.Type)
+				if summary, ok := m.summaryCache[notification.ID]; ok {
+					m.summaryLoading = false
+					author := summary.author
+					if author != "" {
+						author = fmt.Sprintf("by @%s", author)
+					}
+					m.summaryContent = fmt.Sprintf("Repository: %s\nReason: %s\nType: %s %s\n\n%s\n\n---\n\n%s",
+						notification.RepoName(),
+						notification.Reason,
+						notification.TypeDisplay(),
+						author,
+						notification.Subject.Title,
+						summary.body)
+					m.statusMessage = "Summary loaded from cache"
+				} else {
+					m.summaryLoading = true
+					m.summaryContent = "Loading..."
+					return m, fetchDetailsCmd(notification.Subject.URL, notification.Subject.Type)
+				}
 			} else {
 				m.statusMessage = ""
 			}
