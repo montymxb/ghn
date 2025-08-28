@@ -81,7 +81,10 @@ type Model struct {
 // Messages
 type notificationsLoadedMsg []Notification
 type notificationMarkedMsg string
-type detailsLoadedMsg string
+type detailsLoadedMsg struct {
+	body   string
+	author string
+}
 type errorMsg error
 type statusMsg string
 
@@ -220,33 +223,43 @@ func openInBrowserCmd(notification Notification) tea.Cmd {
 	}
 }
 
-func fetchDetails(url string, notificationType string) (string, error) {
+func fetchDetails(url string, notificationType string) (string, string, error) {
 	cmd := exec.Command("gh", "api", url)
 	output, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("failed to fetch details: %v", err)
+		return "", "", fmt.Errorf("failed to fetch details: %v", err)
 	}
 
 	var data map[string]interface{}
 	if err := json.Unmarshal(output, &data); err != nil {
-		return "", fmt.Errorf("failed to parse details: %v", err)
+		return "", "", fmt.Errorf("failed to parse details: %v", err)
 	}
 
 	body, ok := data["body"].(string)
 	if !ok {
-		return "", fmt.Errorf("could not find body in response")
+		return "", "", fmt.Errorf("could not find body in response")
 	}
 
-	return body, nil
+	user, ok := data["user"].(map[string]interface{})
+	if !ok {
+		return body, "", nil // Not all items have a user, so don't error
+	}
+
+	author, ok := user["login"].(string)
+	if !ok {
+		return body, "", nil // Not all users have a login, so don't error
+	}
+
+	return body, author, nil
 }
 
 func fetchDetailsCmd(url string, notificationType string) tea.Cmd {
 	return func() tea.Msg {
-		details, err := fetchDetails(url, notificationType)
+		body, author, err := fetchDetails(url, notificationType)
 		if err != nil {
 			return errorMsg(err)
 		}
-		return detailsLoadedMsg(details)
+		return detailsLoadedMsg{body: body, author: author}
 	}
 }
 
@@ -309,12 +322,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case detailsLoadedMsg:
 		m.summaryLoading = false
 		notification := m.notifications[m.selectedIndex]
-		m.summaryContent = fmt.Sprintf("Repository: %s\nReason: %s\nType: %s\n\n%s\n\n---\n\n%s",
+		author := msg.author
+		if author != "" {
+			author = fmt.Sprintf("by @%s", author)
+		}
+		m.summaryContent = fmt.Sprintf("Repository: %s\nReason: %s\nType: %s %s\n\n%s\n\n---\n\n%s",
 			notification.RepoName(),
 			notification.Reason,
 			notification.TypeDisplay(),
+			author,
 			notification.Subject.Title,
-			string(msg))
+			msg.body)
 		m.statusMessage = "Summary loaded"
 		return m, nil
 
