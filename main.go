@@ -477,7 +477,7 @@ func (m Model) View() string {
 		}
 
 		lines := strings.Split(m.summaryContent, "\n")
-		viewHeight := m.terminalHeight - 4 // Account for padding and borders
+		viewHeight := m.terminalHeight - 6 // Account for padding, borders, and indicators
 		if viewHeight < 1 {
 			viewHeight = 1
 		}
@@ -502,7 +502,22 @@ func (m Model) View() string {
 
 		visibleContent := strings.Join(lines[start:end], "\n")
 
-		return summaryBoxStyle.Render(visibleContent)
+		var finalContent strings.Builder
+		if m.summaryScroll > 0 {
+			finalContent.WriteString(dimStyle.Render("▲") + "\n")
+		} else {
+			finalContent.WriteString("\n")
+		}
+
+		finalContent.WriteString(visibleContent)
+
+		if m.summaryScroll+viewHeight < len(lines) {
+			finalContent.WriteString("\n" + dimStyle.Render("▼"))
+		} else {
+			finalContent.WriteString("\n")
+		}
+
+		return summaryBoxStyle.Render(finalContent.String())
 	}
 
 	var b strings.Builder
