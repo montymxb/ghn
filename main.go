@@ -77,6 +77,7 @@ type Model struct {
 	summaryBody     string
 	summaryCache    map[string]detailsLoadedMsg
 	summaryScroll   int
+	summaryLines    []string
 	statusMessage   string
 	terminalWidth   int
 	terminalHeight  int
@@ -352,6 +353,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			notification.Subject.Title)
 		m.summaryBody = msg.body
 		m.statusMessage = "Summary loaded"
+
+		// Render markdown and set lines
+		renderedBody, err := renderMarkdown(m.summaryBody, m.terminalWidth-8)
+		if err != nil {
+			renderedBody = m.summaryBody // fallback
+		}
+		fullContent := m.summaryHeader + "\n\n---\n\n" + renderedBody
+		m.summaryLines = strings.Split(fullContent, "\n")
+
 		return m, nil
 
 	case errorMsg:
@@ -377,9 +387,14 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "down", "j":
-			// We need to know the max scroll to avoid over-scrolling
-			// This is a bit of a hack, we should probably calculate this properly
-			maxScroll := strings.Count(m.summaryBody, "\n") - (m.terminalHeight - 10)
+			viewHeight := m.terminalHeight - 6
+			if viewHeight < 1 {
+				viewHeight = 1
+			}
+			maxScroll := len(m.summaryLines) - viewHeight
+			if maxScroll < 0 {
+				maxScroll = 0
+			}
 			if m.summaryScroll < maxScroll {
 				m.summaryScroll++
 			}
@@ -449,10 +464,19 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 							notification.Subject.Title)
 						m.summaryBody = summary.body
 						m.statusMessage = "Summary loaded from cache"
+
+						// Render markdown and set lines
+						renderedBody, err := renderMarkdown(m.summaryBody, m.terminalWidth-8)
+						if err != nil {
+							renderedBody = m.summaryBody // fallback
+						}
+						fullContent := m.summaryHeader + "\n\n---\n\n" + renderedBody
+						m.summaryLines = strings.Split(fullContent, "\n")
 					} else {
 						m.summaryLoading = true
 						m.summaryHeader = ""
 						m.summaryBody = "Loading..."
+						m.summaryLines = []string{}
 						return m, fetchDetailsCmd(notification.Subject.URL, notification.Subject.Type)
 					}
 				} else {
@@ -491,16 +515,7 @@ func (m Model) View() string {
 			return summaryBoxStyle.Render("Loading...")
 		}
 
-		// Render the summary body as markdown
-		renderedBody, err := renderMarkdown(m.summaryBody, m.terminalWidth-8)
-		if err != nil {
-			// Fallback to non-rendered content on error
-			renderedBody = m.summaryBody
-		}
-
-		fullContent := m.summaryHeader + "\n\n---\n\n" + renderedBody
-
-		lines := strings.Split(fullContent, "\n")
+		lines := m.summaryLines
 		viewHeight := m.terminalHeight - 6 // Account for padding, borders, and indicators
 		if viewHeight < 1 {
 			viewHeight = 1
