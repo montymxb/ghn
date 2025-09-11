@@ -67,20 +67,20 @@ func (n *Notification) RepoName() string {
 
 // Bubble Tea Model
 type Model struct {
-	notifications   []Notification
-	selectedIndex   int
-	loading         bool
-	err             error
-	showingSummary  bool
-	summaryLoading  bool
-	summaryHeader   string
-	summaryBody     string
-	summaryCache    map[string]detailsLoadedMsg
-	summaryScroll   int
-	summaryLines    []string
-	statusMessage   string
-	terminalWidth   int
-	terminalHeight  int
+	notifications  []Notification
+	selectedIndex  int
+	loading        bool
+	err            error
+	showingSummary bool
+	summaryLoading bool
+	summaryHeader  string
+	summaryBody    string
+	summaryCache   map[string]detailsLoadedMsg
+	summaryScroll  int
+	summaryLines   []string
+	statusMessage  string
+	terminalWidth  int
+	terminalHeight int
 }
 
 // Messages
@@ -122,9 +122,9 @@ var (
 			Foreground(lipgloss.Color("#8BE9FD"))
 
 	summaryBoxStyle = lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#FF79C6")).
-		Padding(1, 2)
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#FF79C6")).
+			Padding(1, 2)
 )
 
 // GitHub CLI functions
@@ -188,6 +188,16 @@ func openInBrowser(notification Notification) error {
 			cmd = exec.Command("gh", "issue", "view", issueNum, "-R", repo, "--web")
 		case "PullRequest":
 			cmd = exec.Command("gh", "pr", "view", issueNum, "-R", repo, "--web")
+		// discussions
+		case "Discussion":
+			// rewrite url to allow opening in browser
+			notification.Subject.URL = strings.Replace(notification.Subject.URL, "https://api.github.com", "https://github.com", 1)
+			notification.Subject.URL = strings.Replace(notification.Subject.URL, "/repos/", "/", 1)
+			cmd = exec.Command("open", notification.Subject.URL)
+		// releases
+		case "Release":
+			cmd = exec.Command("gh", "release", "view", issueNum, "-R", repo, "--web")
+		// other types
 		default:
 			cmd = exec.Command("gh", "repo", "view", repo, "--web")
 		}
@@ -283,14 +293,14 @@ func renderMarkdown(content string, width int) (string, error) {
 // Bubble Tea Model Implementation
 func initialModel() Model {
 	return Model{
-		notifications:   []Notification{},
-		selectedIndex:   0,
-		loading:         true,
-		statusMessage:   "Loading notifications...",
-		summaryCache:    make(map[string]detailsLoadedMsg),
-		summaryScroll:   0,
-		terminalWidth:   80,
-		terminalHeight:  24,
+		notifications:  []Notification{},
+		selectedIndex:  0,
+		loading:        true,
+		statusMessage:  "Loading notifications...",
+		summaryCache:   make(map[string]detailsLoadedMsg),
+		summaryScroll:  0,
+		terminalWidth:  80,
+		terminalHeight: 24,
 	}
 }
 
@@ -410,7 +420,6 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 
-
 	case "q", "ctrl+c":
 		return m, tea.Quit
 
@@ -451,41 +460,40 @@ func (m Model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.showingSummary {
 				notification := m.notifications[m.selectedIndex]
 				m.summaryScroll = 0 // Reset scroll on new summary
-					if summary, ok := m.summaryCache[notification.ID]; ok {
-						m.summaryLoading = false
-						author := summary.author
-						if author != "" {
-							author = fmt.Sprintf("by @%s", author)
-						}
-						m.summaryHeader = fmt.Sprintf("Repository: %s\nReason: %s\nType: %s %s\n\n%s",
-							notification.RepoName(),
-							notification.Reason,
-							notification.TypeDisplay(),
-							author,
-							notification.Subject.Title)
-						m.summaryBody = summary.body
-						m.statusMessage = "Summary loaded from cache"
-
-						// Render markdown and set lines
-						renderedBody, err := renderMarkdown(m.summaryBody, m.terminalWidth-8)
-						if err != nil {
-							renderedBody = m.summaryBody // fallback
-						}
-						fullContent := m.summaryHeader + "\n\n---\n\n" + renderedBody
-						m.summaryLines = strings.Split(fullContent, "\n")
-					} else {
-						m.summaryLoading = true
-						m.summaryHeader = ""
-						m.summaryBody = "Loading..."
-						m.summaryLines = []string{}
-						return m, fetchDetailsCmd(notification.Subject.URL, notification.Subject.Type)
+				if summary, ok := m.summaryCache[notification.ID]; ok {
+					m.summaryLoading = false
+					author := summary.author
+					if author != "" {
+						author = fmt.Sprintf("by @%s", author)
 					}
-				} else {
-					m.statusMessage = ""
-				}
-			}
-			return m, nil
+					m.summaryHeader = fmt.Sprintf("Repository: %s\nReason: %s\nType: %s %s\n\n%s",
+						notification.RepoName(),
+						notification.Reason,
+						notification.TypeDisplay(),
+						author,
+						notification.Subject.Title)
+					m.summaryBody = summary.body
+					m.statusMessage = "Summary loaded from cache"
 
+					// Render markdown and set lines
+					renderedBody, err := renderMarkdown(m.summaryBody, m.terminalWidth-8)
+					if err != nil {
+						renderedBody = m.summaryBody // fallback
+					}
+					fullContent := m.summaryHeader + "\n\n---\n\n" + renderedBody
+					m.summaryLines = strings.Split(fullContent, "\n")
+				} else {
+					m.summaryLoading = true
+					m.summaryHeader = ""
+					m.summaryBody = "Loading..."
+					m.summaryLines = []string{}
+					return m, fetchDetailsCmd(notification.Subject.URL, notification.Subject.Type)
+				}
+			} else {
+				m.statusMessage = ""
+			}
+		}
+		return m, nil
 
 	case "esc":
 		if m.showingSummary {
@@ -562,8 +570,6 @@ func (m Model) View() string {
 
 	var b strings.Builder
 
-
-
 	// Title
 	b.WriteString(titleStyle.Render("GitHub Notifications"))
 	b.WriteString("\n\n")
@@ -598,14 +604,14 @@ func (m Model) View() string {
 		for i := startIdx; i < endIdx; i++ {
 			notification := m.notifications[i]
 			line := m.formatNotificationLine(notification, i)
-				if i == m.selectedIndex {
-					line = "> " + line
-					line = selectedStyle.Render(line)
-				} else {
-					line = "  " + line
-				}
+			if i == m.selectedIndex {
+				line = "> " + line
+				line = selectedStyle.Render(line)
+			} else {
+				line = "  " + line
+			}
 
-				b.WriteString(line)
+			b.WriteString(line)
 			b.WriteString("\n")
 		}
 	} else {
